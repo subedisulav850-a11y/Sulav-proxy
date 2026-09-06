@@ -30,12 +30,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Show repo root contents (diagnostic)
+        run: |
+          echo "Repository root: $GITHUB_WORKSPACE"
+          ls -la || true
+          echo "Looking for any gradlew files..."
+          find . -maxdepth 4 -name gradlew -print -exec ls -la {} \; || true
+
+      - name: Make gradlew executable (if present)
+        run: |
+          # Make any gradlew wrapper files executable to avoid 'command not found' (exit 127)
+          find . -name gradlew -print -exec chmod +x {} \; || true
+
       - name: Show runner info
         run: |
           echo "Java version:"
           java -XshowSettings:properties -version 2>&1 | sed -n '1,5p' || true
-          echo "Gradle wrapper version:"
-          ./gradlew --version || true
+          echo "Gradle wrapper version (if gradlew present):"
+          if [ -x ./gradlew ]; then
+            ./gradlew --version || true
+          else
+            echo "No executable gradlew at repo root; running 'gradle --version' if available"
+            gradle --version || true
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -67,7 +84,13 @@ jobs:
       - name: Build debug APK
         run: |
           echo "Starting Gradle assembleDebug..."
-          ./gradlew assembleDebug --no-daemon --console=plain
+          # Prefer the wrapper if present; otherwise fall back to system gradle
+          if [ -x ./gradlew ]; then
+            ./gradlew assembleDebug --no-daemon --console=plain
+          else
+            echo "gradlew not executable or not found; attempting 'gradle assembleDebug' (may not be available)"
+            gradle assembleDebug --no-daemon --console=plain
+          fi
 
       # Upload any APKs found under the repo as an artifact for easy download from the run
       - name: Upload APK artifact
@@ -94,7 +117,7 @@ jobs:
           artifacts_json=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
             "https://api.github.com/repos/${repo}/actions/runs/${run_id}/artifacts")
 
-          # Parse with a single-line python to avoid here-doc/YAML escaping issues
+          # Parse with a single-line python to avoid multiline/YAML escaping issues
           artifact_id=$(printf '%s' "$artifacts_json" | python3 -c "import os,sys,json; name=os.environ.get('artifact_name'); d=json.load(sys.stdin); arts=d.get('artifacts',[]); print(next((a.get('id') for a in arts if a.get('name')==name), ''))")
 
           if [ -n "$artifact_id" ]; then
