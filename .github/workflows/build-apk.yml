@@ -22,6 +22,7 @@ jobs:
     env:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-cache
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
     steps:
       - name: Checkout
@@ -56,39 +57,104 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmdline-tools;latest"
 
-      - name: Fix Gradle Wrapper Version
+      - name: Setup Gradle Wrapper
         run: |
-          # Update gradle-wrapper.properties to use Gradle 8.9
-          if [ -f "./gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's/gradle-.*-all.zip/gradle-8.9-all.zip/g' ./gradle/wrapper/gradle-wrapper.properties
-            echo "✅ Updated gradle-wrapper.properties to use Gradle 8.9"
+          echo "Current directory structure:"
+          ls -la
+          echo ""
+          echo "Looking for gradle files:"
+          find . -name "gradle-wrapper.properties" -type f 2>/dev/null || echo "No gradle-wrapper.properties found"
+          echo ""
+          echo "Looking for build.gradle files:"
+          find . -name "build.gradle*" -type f 2>/dev/null || echo "No build.gradle files found"
+          
+          # Check if we have a gradle wrapper directory
+          if [ -d "./gradle/wrapper" ]; then
+            echo "✅ Found ./gradle/wrapper directory"
+            cd ./gradle/wrapper
+            echo "Current directory: $(pwd)"
+            echo "Files in wrapper directory:"
+            ls -la
+            
+            # Check if properties file exists
+            if [ -f "gradle-wrapper.properties" ]; then
+              echo "✅ gradle-wrapper.properties found!"
+              echo "Current content:"
+              cat gradle-wrapper.properties
+              echo ""
+              echo "Updating to Gradle 8.9..."
+              sed -i 's/gradle-.*-all.zip/gradle-8.9-all.zip/g' gradle-wrapper.properties
+              echo "Updated content:"
+              cat gradle-wrapper.properties
+            else
+              echo "❌ gradle-wrapper.properties not found in ./gradle/wrapper"
+              echo "Creating gradle-wrapper.properties..."
+              cat > gradle-wrapper.properties << 'EOF'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-all.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
+              echo "Created gradle-wrapper.properties with Gradle 8.9"
+            fi
+            cd ../..
           else
-            echo "❌ gradle-wrapper.properties not found!"
-            exit 1
+            echo "❌ ./gradle/wrapper directory not found!"
+            echo "Creating gradle wrapper..."
+            
+            # Install Gradle
+            wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip
+            unzip -q gradle-8.9-bin.zip
+            export PATH=$PWD/gradle-8.9/bin:$PATH
+            gradle --version
+            
+            # Generate wrapper
+            gradle wrapper
+            chmod +x ./gradlew
+            
+            # Verify creation
+            if [ -f "./gradle/wrapper/gradle-wrapper.properties" ]; then
+              echo "✅ Gradle wrapper created successfully"
+              cat ./gradle/wrapper/gradle-wrapper.properties
+            fi
           fi
           
-          # Make gradlew executable
-          chmod +x ./gradlew
+          # Make gradlew executable if it exists
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            echo "✅ gradlew is now executable"
+          elif [ -f "./gradle/gradlew" ]; then
+            chmod +x ./gradle/gradlew
+            echo "✅ gradle/gradlew is now executable"
+          fi
 
       - name: Build APK
         run: |
-          # Check if build.gradle or build.gradle.kts exists
-          if [ ! -f "build.gradle" ] && [ ! -f "build.gradle.kts" ] && [ ! -f "app/build.gradle" ] && [ ! -f "app/build.gradle.kts" ]; then
-            echo "❌ No build.gradle file found!"
-            echo "Current directory contents:"
-            ls -la
-            echo "Trying to find gradle files:"
-            find . -name "*.gradle*" -type f 2>/dev/null || echo "No gradle files found"
+          # Find gradlew
+          if [ -f "./gradlew" ]; then
+            GRADLEW="./gradlew"
+          elif [ -f "./gradle/gradlew" ]; then
+            GRADLEW="./gradle/gradlew"
+          else
+            echo "❌ gradlew not found!"
             exit 1
           fi
           
-          # Check if the app is in a subdirectory
-          if [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
-            echo "Building app from 'app' directory"
-            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          chmod +x $GRADLEW
+          
+          # Check if this is an Android project
+          if [ -d "app" ]; then
+            echo "Building from app module"
+            $GRADLEW :app:assembleDebug --no-daemon --stacktrace
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "Building from root"
+            $GRADLEW assembleDebug --no-daemon --stacktrace
           else
-            echo "Building from root directory"
-            ./gradlew assembleDebug --no-daemon --stacktrace
+            echo "❌ No Android project structure found!"
+            echo "Current directory contents:"
+            ls -la
+            exit 1
           fi
 
       - name: Find and Upload APK
