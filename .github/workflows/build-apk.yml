@@ -56,33 +56,19 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmdline-tools;latest"
 
-      - name: Setup Gradle Wrapper
+      - name: Fix Gradle Wrapper Version
         run: |
-          # Check if gradlew exists
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            echo "✅ Using existing gradlew"
-            exit 0
+          # Update gradle-wrapper.properties to use Gradle 8.9
+          if [ -f "./gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's/gradle-.*-all.zip/gradle-8.9-all.zip/g' ./gradle/wrapper/gradle-wrapper.properties
+            echo "✅ Updated gradle-wrapper.properties to use Gradle 8.9"
+          else
+            echo "❌ gradle-wrapper.properties not found!"
+            exit 1
           fi
-
-          # Install gradle if wrapper missing
-          echo "📦 Installing Gradle..."
-          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
-          unzip -q gradle-8.5-bin.zip
-          export PATH=$PWD/gradle-8.5/bin:$PATH
-          gradle --version
-
-          # Generate wrapper
-          gradle wrapper
+          
+          # Make gradlew executable
           chmod +x ./gradlew
-
-          # Download wrapper jar if needed
-          if [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
-            mkdir -p gradle/wrapper
-            wget -q -O gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.5/gradle/wrapper/gradle-wrapper.jar
-          fi
-
-          echo "✅ Gradle wrapper generated"
 
       - name: Build APK
         run: |
