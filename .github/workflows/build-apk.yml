@@ -82,27 +82,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
-          repo=${GITHUB_REPOSITORY}
+          set -euo pipefail
+          # Ensure jq is available for safe JSON parsing
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+          repo="${GITHUB_REPOSITORY}"
           artifact_name="sulav-proxy-apk"
 
           echo "Querying artifacts for ${repo} to find artifact named ${artifact_name}"
 
-          # Query artifacts in the repository's Actions artifacts list and find the matching artifact id
-          artifact_id=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${repo}/actions/artifacts" \
-            | python -c "import sys,json; d=json.load(sys.stdin); arts=d.get('artifacts',[]);\
-for a in arts:\
-  if a.get('name')=='${artifact_name}':\
-    print(a.get('id')); break")
+          artifacts_json=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${repo}/actions/artifacts")
+          artifact_id=$(printf "%s" "${artifacts_json}" | jq -r --arg name "${artifact_name}" '.artifacts[] | select(.name==$name) | .id' | head -n1 || true)
 
-          if [ -n "$artifact_id" ]; then
-            echo "Found artifact id: $artifact_id"
+          if [ -n "${artifact_id}" ] && [ "${artifact_id}" != "null" ]; then
+            echo "Found artifact id: ${artifact_id}"
             download_url="https://api.github.com/repos/${repo}/actions/artifacts/${artifact_id}/zip"
-            echo "Download (requires authentication): $download_url"
-            echo "### APK artifact\n\nDownload (requires authentication): $download_url" >> "$GITHUB_STEP_SUMMARY"
-            # Also expose as a job output for downstream usage
-            echo "apk_download_url=$download_url" >> "$GITHUB_OUTPUT"
+            echo "Download (requires authentication): ${download_url}"
+            echo "### APK artifact\n\nDownload (requires authentication): ${download_url}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "apk_download_url=${download_url}" >> "${GITHUB_OUTPUT}"
           else
             echo "Artifact not found in repository artifacts list."
-            echo "APK artifact was uploaded but couldn't locate it via the repository artifacts API." >> "$GITHUB_STEP_SUMMARY"
+            echo "APK artifact was uploaded but couldn't locate it via the repository artifacts API." >> "${GITHUB_STEP_SUMMARY}"
           fi
