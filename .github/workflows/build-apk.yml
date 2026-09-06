@@ -23,6 +23,8 @@ jobs:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       # Use a repo-local gradle cache directory (avoid runner.* in expressions)
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-cache
+      # Increase heap for Gradle
+      GRADLE_OPTS: -Xmx2g -Dorg.gradle.jvmargs=-Xmx2g
 
     steps:
       - name: Checkout
@@ -39,19 +41,18 @@ jobs:
 
       - name: Make gradlew executable (if present)
         run: |
-          # Make any gradlew wrapper files executable to avoid 'command not found' (exit 127)
           find . -name gradlew -print -exec chmod +x {} \; || true
 
       - name: Show runner info
         run: |
           echo "Java version:"
           java -XshowSettings:properties -version 2>&1 | sed -n '1,5p' || true
-          echo "Gradle wrapper version (if gradlew present):"
+          echo "Gradle wrapper present? (expected to use ./gradlew)"
           if [ -x ./gradlew ]; then
+            echo "gradlew is executable at repo root"
             ./gradlew --version || true
           else
-            echo "No executable gradlew at repo root; running 'gradle --version' if available"
-            gradle --version || true
+            echo "WARNING: gradlew not found/executable at repo root. The build will fail. Please commit the Gradle wrapper to the repo."
           fi
 
       - name: Set up JDK 17
@@ -84,30 +85,22 @@ jobs:
           ls -la "$ANDROID_SDK_ROOT" || true
           sdkmanager --list || true
 
-      - name: Show gradlew (permissions + hash) and run version check
+      - name: Verify gradlew and fail if missing
         run: |
           set -euxo pipefail
-          echo "Looking for gradlew in repo..."
-          find . -maxdepth 6 -name gradlew -print -exec ls -la {} \; || true
-          # Make wrapper executable if present
-          find . -name gradlew -exec chmod +x {} \; || true
-          if [ -x ./gradlew ]; then
-            echo "gradlew is executable at repo root; showing version:"
-            ./gradlew --version || true
-          else
-            echo "No executable gradlew at repo root; will try system 'gradle --version'"
-            gradle --version || true
+          if [ ! -x ./gradlew ]; then
+            echo "ERROR: gradlew not found or not executable at repo root."
+            echo "Please generate and commit the Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/*)."
+            exit 2
           fi
+          echo "Using project Gradle wrapper at ./gradlew"
 
-      - name: Build debug APK (verbose)
+      - name: Build debug APK (verbose, wrapper required)
         run: |
           set -euxo pipefail
           echo "Starting Gradle assembleDebug (stacktrace + info)..."
-          if [ -x ./gradlew ]; then
-            ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
-          else
-            gradle assembleDebug --no-daemon --console=plain --stacktrace --info
-          fi
+          # Use wrapper and increase heap via GRADLE_OPTS / org.gradle.jvmargs
+          ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -132,7 +125,7 @@ jobs:
           artifacts_json=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
             "https://api.github.com/repos/${repo}/actions/runs/${run_id}/artifacts")
 
-          # Parse with a single-line python to avoid multiline/YAML escaping issues
+          # Parse JSON with python3 to avoid YAML multiline/escaping problems
           artifact_id=$(printf '%s' "$artifacts_json" | python3 -c "import os,sys,json; name=os.environ.get('artifact_name'); d=json.load(sys.stdin); arts=d.get('artifacts',[]); print(next((a.get('id') for a in arts if a.get('name')==name), ''))")
 
           if [ -n "$artifact_id" ]; then
