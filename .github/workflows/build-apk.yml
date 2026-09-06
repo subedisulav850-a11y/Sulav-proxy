@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -61,3 +62,47 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35"
+
+      # Build APK(s)
+      - name: Build debug APK
+        run: |
+          echo "Starting Gradle assembleDebug..."
+          ./gradlew assembleDebug --no-daemon --console=plain
+
+      # Upload any APKs found under the repo as an artifact for easy download from the run
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sulav-proxy-apk
+          path: |
+            **/*.apk
+
+      # Print a download URL (requires auth) to the job summary so it's easy to find
+      - name: Write APK download link to job summary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          repo=${GITHUB_REPOSITORY}
+          artifact_name="sulav-proxy-apk"
+
+          echo "Querying artifacts for ${repo} to find artifact named ${artifact_name}"
+
+          # Query artifacts in the repository's Actions artifacts list and find the matching artifact id
+          artifact_id=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${repo}/actions/artifacts" \
+            | python -c "import sys,json; d=json.load(sys.stdin); arts=d.get('artifacts',[]);\
+for a in arts:\
+  if a.get('name')=='${artifact_name}':\
+    print(a.get('id')); break")
+
+          if [ -n "$artifact_id" ]; then
+            echo "Found artifact id: $artifact_id"
+            download_url="https://api.github.com/repos/${repo}/actions/artifacts/${artifact_id}/zip"
+            echo "Download (requires authentication): $download_url"
+            echo "### APK artifact\n\nDownload (requires authentication): $download_url" >> "$GITHUB_STEP_SUMMARY"
+            # Also expose as a job output for downstream usage
+            echo "apk_download_url=$download_url" >> "$GITHUB_OUTPUT"
+          else
+            echo "Artifact not found in repository artifacts list."
+            echo "APK artifact was uploaded but couldn't locate it via the repository artifacts API." >> "$GITHUB_STEP_SUMMARY"
+          fi
