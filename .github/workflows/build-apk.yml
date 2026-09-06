@@ -38,7 +38,7 @@ jobs:
           find . -maxdepth 3 -name "gradle*" -o -name "*.gradle" | head -20
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -55,7 +55,7 @@ jobs:
           restore-keys: |
             gradle-cache-${{ github.ref }}-
 
-      - name: Set up Android SDK (tools only)
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
@@ -68,31 +68,25 @@ jobs:
         run: |
           set -euxo pipefail
           
-          # Check if gradlew exists
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
             echo "✅ gradlew found and made executable"
             exit 0
           fi
           
-          # If gradlew doesn't exist, check for gradle wrapper files
           if [ -f ./gradle/wrapper/gradle-wrapper.jar ] && [ -f ./gradle/wrapper/gradle-wrapper.properties ]; then
             echo "⚠️ Found gradle wrapper files but no gradlew script"
             echo "Generating gradlew script..."
             
-            # Download gradle wrapper manually
             WRAPPER_VERSION=$(grep distributionUrl ./gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9.]*\)-.*/\1/')
-            WRAPPER_URL="https://services.gradle.org/distributions/gradle-${WRAPPER_VERSION}-bin.zip"
             
-            # Create gradlew script
-            cat > ./gradlew << 'EOF'
+            cat > ./gradlew << 'EOFGRADLEW'
             #!/bin/sh
             exec java -cp "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
-            EOF
+            EOFGRADLEW
             
             chmod +x ./gradlew
             
-            # Download gradle-wrapper.jar if missing
             if [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
               echo "Downloading gradle-wrapper.jar..."
               curl -L -o ./gradle/wrapper/gradle-wrapper.jar "https://github.com/gradle/gradle/raw/v${WRAPPER_VERSION}/gradle/wrapper/gradle-wrapper.jar"
@@ -101,12 +95,11 @@ jobs:
             echo "✅ Generated gradlew script"
           else
             echo "❌ No gradle wrapper found in repository"
-            echo "Please run './gradlew wrapper' locally and commit the generated files:"
+            echo "Please run './gradlew wrapper' locally and commit:"
             echo "  - gradlew"
             echo "  - gradlew.bat"
             echo "  - gradle/wrapper/gradle-wrapper.jar"
             echo "  - gradle/wrapper/gradle-wrapper.properties"
-            echo "Then commit these files to your repository."
             exit 1
           fi
 
