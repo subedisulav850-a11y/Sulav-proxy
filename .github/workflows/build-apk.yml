@@ -87,29 +87,17 @@ jobs:
 
           repo="${GITHUB_REPOSITORY}"
           run_id="${GITHUB_RUN_ID}"
-          artifact_name="${artifact_name}"
+          name="${artifact_name}"
 
-          echo "Querying artifacts for repo=${repo} run_id=${run_id} to find artifact named ${artifact_name}"
+          echo "Querying artifacts for repo=${repo} run_id=${run_id} to find artifact named ${name}"
 
           artifacts_json=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
             "https://api.github.com/repos/${repo}/actions/runs/${run_id}/artifacts")
 
-          # Use python3 (available on ubuntu runners) to parse JSON safely
-          artifact_id=$(printf "%s" "${artifacts_json}" | python3 - <<'PY'
-import os,sys,json
-name = os.environ.get('artifact_name')
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-for a in d.get('artifacts', []):
-    if a.get('name') == name:
-        print(a.get('id'))
-        break
-PY
-)
+          # Parse with a single-line python to avoid here-doc/YAML escaping issues
+          artifact_id=$(printf '%s' "$artifacts_json" | python3 -c "import os,sys,json; name=os.environ.get('artifact_name'); d=json.load(sys.stdin); arts=d.get('artifacts',[]); print(next((a.get('id') for a in arts if a.get('name')==name), ''))")
 
-          if [ -n "${artifact_id}" ]; then
+          if [ -n "$artifact_id" ]; then
             echo "Found artifact id: ${artifact_id}"
             download_url="https://api.github.com/repos/${repo}/actions/artifacts/${artifact_id}/zip"
             echo "Download (requires authentication): ${download_url}"
