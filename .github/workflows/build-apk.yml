@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -40,18 +40,30 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Upload APK
-        id: upload_apk
+      - name: Rename APK with run number
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/SulavProxy-debug-${{ github.run_number }}.apk"
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: SulavProxy-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: dist/SulavProxy-debug-${{ github.run_number }}.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release with APK
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Sulav Proxy build #${{ github.run_number }}"
+          files: dist/SulavProxy-debug-${{ github.run_number }}.apk
+          generate_release_notes: false
 
       - name: Print download link
         run: |
-          echo "APK built successfully."
-          echo "Download it from this workflow run's Artifacts section:"
-          echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo ""
-          echo "::notice title=APK Download::Go to ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} then scroll to Artifacts to download SulavProxy-debug-apk.zip"
+          echo "APK build finished."
+          echo "Direct download link:"
+          echo "${{ github.server_url }}/${{ github.repository }}/releases/download/build-${{ github.run_number }}/SulavProxy-debug-${{ github.run_number }}.apk"
+          echo "::notice title=APK Download::${{ github.server_url }}/${{ github.repository }}/releases/download/build-${{ github.run_number }}/SulavProxy-debug-${{ github.run_number }}.apk"
