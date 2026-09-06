@@ -35,7 +35,7 @@ jobs:
           echo "Repository root: $GITHUB_WORKSPACE"
           ls -la || true
           echo "Looking for any gradlew files..."
-          find . -maxdepth 4 -name gradlew -print -exec ls -la {} \; || true
+          find . -maxdepth 6 -name gradlew -print -exec ls -la {} \; || true
 
       - name: Make gradlew executable (if present)
         run: |
@@ -75,24 +75,40 @@ jobs:
       - name: Set up Android SDK (tools only)
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK packages (including build-tools)
         run: |
+          set -euxo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmdline-tools;latest"
+          echo "Installed SDK root: $ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_SDK_ROOT" || true
+          sdkmanager --list || true
 
-      # Build APK(s)
-      - name: Build debug APK
+      - name: Show gradlew (permissions + hash) and run version check
         run: |
-          echo "Starting Gradle assembleDebug..."
-          # Prefer the wrapper if present; otherwise fall back to system gradle
+          set -euxo pipefail
+          echo "Looking for gradlew in repo..."
+          find . -maxdepth 6 -name gradlew -print -exec ls -la {} \; || true
+          # Make wrapper executable if present
+          find . -name gradlew -exec chmod +x {} \; || true
           if [ -x ./gradlew ]; then
-            ./gradlew assembleDebug --no-daemon --console=plain
+            echo "gradlew is executable at repo root; showing version:"
+            ./gradlew --version || true
           else
-            echo "gradlew not executable or not found; attempting 'gradle assembleDebug' (may not be available)"
-            gradle assembleDebug --no-daemon --console=plain
+            echo "No executable gradlew at repo root; will try system 'gradle --version'"
+            gradle --version || true
           fi
 
-      # Upload any APKs found under the repo as an artifact for easy download from the run
+      - name: Build debug APK (verbose)
+        run: |
+          set -euxo pipefail
+          echo "Starting Gradle assembleDebug (stacktrace + info)..."
+          if [ -x ./gradlew ]; then
+            ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
+          else
+            gradle assembleDebug --no-daemon --console=plain --stacktrace --info
+          fi
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -100,7 +116,6 @@ jobs:
           path: |
             **/*.apk
 
-      # Print a download URL (requires auth) to the job summary so it's easy to find
       - name: Write APK download link to job summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
