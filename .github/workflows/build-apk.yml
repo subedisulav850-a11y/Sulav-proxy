@@ -52,7 +52,7 @@ jobs:
             echo "gradlew is executable at repo root"
             ./gradlew --version || true
           else
-            echo "WARNING: gradlew not found/executable at repo root. The build will fail. Please commit the Gradle wrapper to the repo."
+            echo "WARNING: gradlew not found/executable at repo root. The build will fail until wrapper is committed."
           fi
 
       - name: Set up JDK 17
@@ -99,7 +99,6 @@ jobs:
         run: |
           set -euxo pipefail
           echo "Starting Gradle assembleDebug (stacktrace + info)..."
-          # Use wrapper and increase heap via GRADLE_OPTS / org.gradle.jvmargs
           ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
 
       - name: Upload APK artifact
