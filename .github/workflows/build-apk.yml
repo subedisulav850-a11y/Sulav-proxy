@@ -22,20 +22,12 @@ jobs:
     env:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-cache
-      GRADLE_OPTS: -Xmx2g -Dorg.gradle.jvmargs=-Xmx2g
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Show repo root contents (diagnostic)
-        run: |
-          echo "Repository root: $GITHUB_WORKSPACE"
-          ls -la
-          echo "=== Looking for gradle-related files ==="
-          find . -maxdepth 3 -name "gradle*" -o -name "*.gradle" | head -20
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -44,88 +36,73 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Cache Gradle and wrapper
+      - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.GRADLE_USER_HOME }}
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-cache-${{ github.ref }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('**/*.gradle*','gradle.properties') }}
+          key: gradle-cache-${{ github.ref }}-${{ hashFiles('**/*.gradle*', '**/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-cache-${{ github.ref }}-
+            gradle-cache-
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          set -euxo pipefail
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmdline-tools;latest"
 
-      - name: Check for gradlew and generate if missing
+      - name: Setup Gradle Wrapper
         run: |
-          set -euxo pipefail
-          
-          if [ -f ./gradlew ]; then
+          # Check if gradlew exists
+          if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            echo "✅ gradlew found and made executable"
+            echo "✅ Using existing gradlew"
             exit 0
           fi
-          
-          if [ -f ./gradle/wrapper/gradle-wrapper.jar ] && [ -f ./gradle/wrapper/gradle-wrapper.properties ]; then
-            echo "⚠️ Found gradle wrapper files but no gradlew script"
-            echo "Generating gradlew script..."
-            
-            WRAPPER_VERSION=$(grep distributionUrl ./gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9.]*\)-.*/\1/')
-            
-            cat > ./gradlew << 'EOFGRADLEW'
-            #!/bin/sh
-            exec java -cp "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
-            EOFGRADLEW
-            
-            chmod +x ./gradlew
-            
-            if [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
-              echo "Downloading gradle-wrapper.jar..."
-              curl -L -o ./gradle/wrapper/gradle-wrapper.jar "https://github.com/gradle/gradle/raw/v${WRAPPER_VERSION}/gradle/wrapper/gradle-wrapper.jar"
-            fi
-            
-            echo "✅ Generated gradlew script"
-          else
-            echo "❌ No gradle wrapper found in repository"
-            echo "Please run './gradlew wrapper' locally and commit:"
-            echo "  - gradlew"
-            echo "  - gradlew.bat"
-            echo "  - gradle/wrapper/gradle-wrapper.jar"
-            echo "  - gradle/wrapper/gradle-wrapper.properties"
-            exit 1
+
+          # Install gradle if wrapper missing
+          echo "📦 Installing Gradle..."
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          export PATH=$PWD/gradle-8.5/bin:$PATH
+          gradle --version
+
+          # Generate wrapper
+          gradle wrapper
+          chmod +x ./gradlew
+
+          # Download wrapper jar if needed
+          if [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
+            mkdir -p gradle/wrapper
+            wget -q -O gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.5/gradle/wrapper/gradle-wrapper.jar
           fi
 
-      - name: Verify gradlew is working
-        run: |
-          ./gradlew --version
+          echo "✅ Gradle wrapper generated"
 
-      - name: Build debug APK
+      - name: Build APK
         run: |
-          set -euxo pipefail
-          ./gradlew assembleDebug --no-daemon --console=plain --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: sulav-proxy-apk
           path: |
             **/*.apk
+          if-no-files-found: warn
 
-      - name: Write APK download link to job summary
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Download Link
         run: |
-          set -euo pipefail
-          
-          if [ -n "${{ github.token }}" ]; then
-            echo "### APK Artifact URL" >> "${GITHUB_STEP_SUMMARY}"
-            echo "The APK will be available in the 'Artifacts' section above once the build completes." >> "${GITHUB_STEP_SUMMARY}"
-          fi
+          echo "### ✅ APK Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The APK artifact is available in the **Artifacts** section above." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To download:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Click on the **Summary** tab" >> $GITHUB_STEP_SUMMARY
+          echo "2. Scroll down to **Artifacts**" >> $GITHUB_STEP_SUMMARY
+          echo "3. Download **sulav-proxy-apk**" >> $GITHUB_STEP_SUMMARY
